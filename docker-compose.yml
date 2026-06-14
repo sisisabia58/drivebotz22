@@ -4,3 +4,6 @@ services:
     command: bash start.sh
     restart: on-failure
     network_mode: "host"
+    env_file:
+      - config.env
+
