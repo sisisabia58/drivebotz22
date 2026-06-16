@@ -593,6 +593,7 @@ class TaskConfig:
             if self.multi > 2:
                 msgts += f"\nCancel Multi: <code>/{BotCommands.CancelTaskCommand[1]} {self.multi_tag}</code>"
             nextmsg = await send_message(self.message, msgts)
+            file_msg = None
         else:
             msg = [s.strip() for s in input_list]
             index = msg.index("-i")
@@ -605,11 +606,11 @@ class TaskConfig:
                 )
                 await send_status_message(self.message)
                 return
-            nextmsg = await self.client.get_messages(
+            file_msg = await self.client.get_messages(
                 chat_id=self.message.chat.id,
                 message_ids=reply_to.id + 1,
             )
-            if nextmsg.empty:
+            if file_msg.empty:
                 await send_message(
                     self.message,
                     "Bot can't fetch old messages (older than 48H), forward those messages and try multi/bulk again!",
@@ -619,14 +620,14 @@ class TaskConfig:
             msgts = " ".join(msg)
             if self.multi > 2:
                 msgts += f"\nCancel Multi: <code>/{BotCommands.CancelTaskCommand[1]} {self.multi_tag}</code>"
-            nextmsg = await send_message(nextmsg, msgts)
+            nextmsg = await send_message(file_msg, msgts)
         if self.message.from_user:
             nextmsg.from_user = self.user
         else:
             nextmsg.sender_chat = self.user
         if intervals["stopAll"]:
             return
-        await obj(
+        next_obj = obj(
             self.client,
             nextmsg,
             self.is_qbit,
@@ -637,7 +638,10 @@ class TaskConfig:
             self.bulk,
             self.multi_tag,
             self.options,
-        ).new_event()
+        )
+        if file_msg:
+            next_obj.reply_to = file_msg
+        await next_obj.new_event()
 
     async def init_bulk(self, input_list, bulk_start, bulk_end, obj):
         try:
