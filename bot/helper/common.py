@@ -598,7 +598,7 @@ class TaskConfig:
             msg[index + 1] = f"{self.multi - 1}"
             nextmsg = await self.client.get_messages(
                 chat_id=self.message.chat.id,
-                message_ids=self.message.reply_to_message_id + 1,
+                message_ids=self.message.reply_to_message.id + 1,
             )
             if nextmsg.empty:
                 await send_message(
