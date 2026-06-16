@@ -103,6 +103,7 @@ class TaskConfig:
         self.is_gofile = False
         self.equal_splits = False
         self.user_transmission = False
+        self.reply_to = None
         self.hybrid_leech = False
         self.extract = False
         self.compress = False
@@ -596,9 +597,17 @@ class TaskConfig:
             msg = [s.strip() for s in input_list]
             index = msg.index("-i")
             msg[index + 1] = f"{self.multi - 1}"
+            reply_to = self.reply_to or self.message.reply_to_message
+            if reply_to is None:
+                await send_message(
+                    self.message,
+                    "Bot can't find the message to download for multi-download!",
+                )
+                await send_status_message(self.message)
+                return
             nextmsg = await self.client.get_messages(
                 chat_id=self.message.chat.id,
-                message_ids=self.message.reply_to_message.id + 1,
+                message_ids=reply_to.id + 1,
             )
             if nextmsg.empty:
                 await send_message(
