@@ -355,6 +355,7 @@ class SevenZ:
         self._listener = listener
         self._processed_bytes = 0
         self._percentage = "0%"
+        self.stdout_lines = []
 
     @property
     def processed_bytes(self):
@@ -377,16 +378,23 @@ class SevenZ:
                 line = await wait_for(self._listener.subproc.stdout.readline(), 2)
             except:
                 break
-            line = line.decode().strip()
-            if "%" in line:
-                perc = line.split("%", 1)[0]
+            if not line:
+                break
+            try:
+                decoded_line = line.decode(errors="replace").strip()
+            except Exception:
+                decoded_line = "Unable to decode line"
+            if decoded_line:
+                self.stdout_lines.append(decoded_line)
+            if "%" in decoded_line:
+                perc = decoded_line.split("%", 1)[0]
                 if perc.isdigit():
                     self._percentage = f"{perc}%"
                     self._processed_bytes = (int(perc) / 100) * self._listener.subsize
                 else:
                     self._percentage = "0%"
                 continue
-            if match := re_search(pattern, line):
+            if match := re_search(pattern, decoded_line):
                 self._listener.subsize = int(match[1] or match[2] or match[3])
         s = b""
         while not (
@@ -403,7 +411,8 @@ class SevenZ:
             s += char
             if char == b"%":
                 try:
-                    self._percentage = s.decode().rsplit(" ", 1)[-1].strip()
+                    perc_str = s.decode(errors="replace").rsplit(" ", 1)[-1].strip()
+                    self._percentage = perc_str
                     self._processed_bytes = (
                         int(self._percentage.strip("%")) / 100
                     ) * self._listener.subsize
@@ -416,6 +425,7 @@ class SevenZ:
         self._percentage = "0%"
 
     async def extract(self, f_path, t_path, pswd):
+        self.stdout_lines = []
         cmd = [
             "7z",
             "x",
@@ -450,10 +460,12 @@ class SevenZ:
                 stderr = stderr.decode().strip()
             except:
                 stderr = "Unable to decode the error!"
-            LOGGER.error(f"{stderr}. Unable to extract archive!. Path: {f_path}")
+            stdout_err = "\n".join(self.stdout_lines[-15:])
+            LOGGER.error(f"7z failed with code {code}. Stderr: {stderr}. Stdout (last 15 lines): {stdout_err}. Path: {f_path}")
         return code
 
     async def zip(self, dl_path, up_path, pswd):
+        self.stdout_lines = []
         size = await get_path_size(dl_path)
         if self._listener.equal_splits:
             parts = -(-size // self._listener.split_size)
@@ -504,5 +516,6 @@ class SevenZ:
                 stderr = stderr.decode().strip()
             except:
                 stderr = "Unable to decode the error!"
-            LOGGER.error(f"{stderr}. Unable to zip this path: {dl_path}")
+            stdout_err = "\n".join(self.stdout_lines[-15:])
+            LOGGER.error(f"7z failed with code {code}. Stderr: {stderr}. Stdout (last 15 lines): {stdout_err}. Path: {dl_path}")
             return dl_path
