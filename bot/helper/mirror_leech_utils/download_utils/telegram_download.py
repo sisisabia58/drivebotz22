@@ -1,5 +1,7 @@
 from asyncio import Lock, sleep
+from os import path as ospath
 from time import time
+from aiofiles.os import makedirs
 from pyrogram.errors import FloodWait, FloodPremiumWait
 
 from .... import (
@@ -162,6 +164,7 @@ class TelegramDownloadHelper:
                         return
                 self._start_time = time()
                 await self._on_download_start(gid, add_to_queue)
+                await makedirs(ospath.dirname(path), exist_ok=True)
                 await self._download(message, path)
             else:
                 await self._on_download_error("File already being downloaded!")
