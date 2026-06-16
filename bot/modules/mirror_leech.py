@@ -231,7 +231,21 @@ class Mirror(TaskListener):
 
         path = f"{DOWNLOAD_DIR}{self.mid}{self.folder_name}"
 
-        if not self.link and (reply_to := self.message.reply_to_message):
+        reply_to = self.reply_to or self.message.reply_to_message
+        if not self.link and reply_to is None and self.message.reply_to:
+            reply_to_id = self.message.reply_to.message_id
+            try:
+                reply_to = await self.client.get_messages(
+                    chat_id=self.message.chat.id,
+                    message_ids=reply_to_id,
+                )
+                if reply_to.empty:
+                    reply_to = None
+            except Exception as e:
+                LOGGER.error(f"Failed to fetch reply_to message: {e}")
+                reply_to = None
+
+        if not self.link and reply_to:
             if reply_to.text:
                 self.link = reply_to.text.split("\n", 1)[0].strip()
         if is_telegram_link(self.link):
