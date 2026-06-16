@@ -73,7 +73,7 @@ async def _api(
             timeout=_TIMEOUT,
         )
         if res.status_code == 429:
-            retry_after = int(res.headers.get("Retry-After", 60))
+            retry_after = min(int(res.headers.get("Retry-After", 30)), 60)
             LOGGER.warning(f"TorBox rate limited. Sleeping {retry_after}s")
             await asyncio.sleep(retry_after)
             res = await HTTP_CLIENT.request(
@@ -85,6 +85,19 @@ async def _api(
                 headers=_headers(),
                 timeout=_TIMEOUT,
             )
+            if res.status_code == 429:
+                retry_after = min(int(res.headers.get("Retry-After", 30)), 60)
+                LOGGER.warning(f"TorBox rate limited again. Sleeping {retry_after}s")
+                await asyncio.sleep(retry_after)
+                res = await HTTP_CLIENT.request(
+                    method,
+                    f"{_API_BASE}{endpoint}",
+                    params=params or {},
+                    data=data,
+                    files=files,
+                    headers=_headers(),
+                    timeout=_TIMEOUT,
+                )
         res.raise_for_status()
         payload = res.json()
     except HTTPError as exc:
@@ -258,6 +271,13 @@ async def _wait_ready(
 
         item = await getter(item_id, poll_count=poll_count)
 
+        LOGGER.info(
+            f"TorBox poll {kind} ID {item_id}: "
+            f"state={item.get('download_state')}, "
+            f"progress={item.get('progress')}%, "
+            f"files={len(item.get('files') or [])}"
+        )
+
         if progress_callback:
             await progress_callback(
                 {
@@ -272,6 +292,17 @@ async def _wait_ready(
             )
 
         if _is_ready(item):
+            if item.get("files"):
+                return item
+            for _file_retry in range(1, 6):
+                LOGGER.info(
+                    f"TorBox {kind} ID {item_id}: ready but files empty, "
+                    f"retry {_file_retry}/5 in 10s"
+                )
+                await asyncio.sleep(10)
+                item = await getter(item_id, poll_count=poll_count)
+                if item.get("files"):
+                    return item
             return item
 
         err = _has_error(item)
@@ -393,7 +424,14 @@ async def torbox_resolve_magnet(
         result["torbox_torrent_id"] = torrent_id
         return result
     except Exception:
-        await delete_torrent(torrent_id)
+        try:
+            check = await _get_torrent(torrent_id)
+            if not _is_ready(check):
+                await delete_torrent(torrent_id)
+            else:
+                LOGGER.info(f"TorBox torrent {torrent_id}: skipping delete (already completed)")
+        except Exception:
+            pass
         raise
 
 
@@ -421,7 +459,14 @@ async def torbox_resolve_torrent(
         result["torbox_torrent_id"] = torrent_id
         return result
     except Exception:
-        await delete_torrent(torrent_id)
+        try:
+            check = await _get_torrent(torrent_id)
+            if not _is_ready(check):
+                await delete_torrent(torrent_id)
+            else:
+                LOGGER.info(f"TorBox torrent {torrent_id}: skipping delete (already completed)")
+        except Exception:
+            pass
         raise
 
 
@@ -448,5 +493,12 @@ async def torbox_resolve(
         result["torbox_web_id"] = web_id
         return result
     except Exception:
-        await delete_web_download(web_id)
+        try:
+            check = await _get_webdl(web_id)
+            if not _is_ready(check):
+                await delete_web_download(web_id)
+            else:
+                LOGGER.info(f"TorBox webdl {web_id}: skipping delete (already completed)")
+        except Exception:
+            pass
         raise

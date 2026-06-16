@@ -118,12 +118,19 @@ async def _call_api(
             method, url, headers=headers, timeout=_TIMEOUT, **request_kwargs
         )
         if response.status_code == 429:
-            retry_after = int(response.headers.get("Retry-After", 60))
+            retry_after = min(int(response.headers.get("Retry-After", 30)), 60)
             LOGGER.warning(f"AllDebrid rate limited. Sleeping {retry_after}s")
             await asyncio.sleep(retry_after)
             response = await HTTP_CLIENT.request(
                 method, url, headers=headers, timeout=_TIMEOUT, **request_kwargs
             )
+            if response.status_code == 429:
+                retry_after = min(int(response.headers.get("Retry-After", 30)), 60)
+                LOGGER.warning(f"AllDebrid rate limited again. Sleeping {retry_after}s")
+                await asyncio.sleep(retry_after)
+                response = await HTTP_CLIENT.request(
+                    method, url, headers=headers, timeout=_TIMEOUT, **request_kwargs
+                )
         response.raise_for_status()
         payload = response.json()
     except HTTPError as exc:
@@ -585,6 +592,11 @@ async def alldebrid_resolve_magnet(
                 )
 
             status = await get_magnet_status(magnet_id)
+            LOGGER.info(
+                f"AllDebrid poll magnet ({name}): ID {magnet_id} - "
+                f"status={status.get('status', '?')}, "
+                f"statusCode={status.get('statusCode')}"
+            )
             status_code = int(status.get("statusCode", 0) or 0)
             seeders = int(status.get("seeders", 0) or 0)
 
@@ -691,6 +703,11 @@ async def alldebrid_resolve_torrent(
                 )
 
             status = await get_magnet_status(magnet_id)
+            LOGGER.info(
+                f"AllDebrid poll torrent ({name}): ID {magnet_id} - "
+                f"status={status.get('status', '?')}, "
+                f"statusCode={status.get('statusCode')}"
+            )
             status_code = int(status.get("statusCode", 0) or 0)
             seeders = int(status.get("seeders", 0) or 0)
 
