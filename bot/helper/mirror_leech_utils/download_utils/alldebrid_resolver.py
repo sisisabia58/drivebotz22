@@ -25,9 +25,9 @@ import urllib.parse
 from typing import Any, Awaitable, Callable, Optional
 from urllib.parse import urlparse
 
-from httpx import AsyncClient, HTTPError
+from httpx import HTTPError
 
-from bot import LOGGER
+from bot import LOGGER, HTTP_CLIENT
 from bot.core.config_manager import Config
 from bot.helper.ext_utils.exceptions import DirectDownloadLinkException
 
@@ -109,15 +109,23 @@ async def _call_api(
     """
     headers = {"User-Agent": _USER_AGENT}
     try:
-        async with AsyncClient(timeout=_TIMEOUT, headers=headers) as client:
-            request_kwargs: dict[str, Any] = {"params": params or {}}
-            if data is not None:
-                request_kwargs["data"] = data
-            if files is not None:
-                request_kwargs["files"] = files
-            response = await client.request(method, url, **request_kwargs)
-            response.raise_for_status()
-            payload = response.json()
+        request_kwargs: dict[str, Any] = {"params": params or {}}
+        if data is not None:
+            request_kwargs["data"] = data
+        if files is not None:
+            request_kwargs["files"] = files
+        response = await HTTP_CLIENT.request(
+            method, url, headers=headers, timeout=_TIMEOUT, **request_kwargs
+        )
+        if response.status_code == 429:
+            retry_after = int(response.headers.get("Retry-After", 60))
+            LOGGER.warning(f"AllDebrid rate limited. Sleeping {retry_after}s")
+            await asyncio.sleep(retry_after)
+            response = await HTTP_CLIENT.request(
+                method, url, headers=headers, timeout=_TIMEOUT, **request_kwargs
+            )
+        response.raise_for_status()
+        payload = response.json()
     except HTTPError as exc:
         raise DirectDownloadLinkException(
             f"ERROR: AllDebrid network error: {exc}"
@@ -483,6 +491,13 @@ async def _unlock_alldebrid_link(link: str) -> dict[str, Any]:
     )
 
 
+def _adaptive_interval(elapsed: float) -> float:
+    if elapsed < 30:    return 5.0
+    elif elapsed < 120: return 10.0
+    elif elapsed < 300: return 15.0
+    else:               return 30.0
+
+
 async def _resolve_unlocked_files(
     raw_files: list[dict[str, Any]],
     *,
@@ -503,6 +518,7 @@ async def _resolve_unlocked_files(
                     f"AllDebrid unlock failed for {file_entry.get('filename', '?')}: {exc}"
                 )
                 return
+            await asyncio.sleep(1.0)  # space out unlock requests
             direct = unlocked.get("link") or ""
             if not direct:
                 return
@@ -602,7 +618,9 @@ async def alldebrid_resolve_magnet(
                     f"ERROR: AllDebrid magnet exceeded {int(max_duration)}s"
                 )
 
-            await asyncio.sleep(poll_interval)
+            now = loop.time()
+            elapsed = now - start_time
+            await asyncio.sleep(_adaptive_interval(elapsed))
 
         raw_files = await get_magnet_files(magnet_id)
         if not raw_files:
@@ -706,7 +724,8 @@ async def alldebrid_resolve_torrent(
                     f"ERROR: AllDebrid magnet exceeded {int(max_duration)}s"
                 )
 
-            await asyncio.sleep(poll_interval)
+            now_elapsed = loop.time() - start_time
+            await asyncio.sleep(_adaptive_interval(now_elapsed))
 
         raw_files = await get_magnet_files(magnet_id)
         if not raw_files:

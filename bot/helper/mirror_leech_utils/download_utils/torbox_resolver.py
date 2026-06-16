@@ -4,9 +4,9 @@ import asyncio
 from os import path as ospath
 from typing import Any, Awaitable, Callable
 
-from httpx import AsyncClient, HTTPError
+from httpx import HTTPError
 
-from bot import LOGGER
+from bot import LOGGER, HTTP_CLIENT
 from bot.core.config_manager import Config
 from bot.helper.ext_utils.exceptions import DirectDownloadLinkException
 
@@ -63,16 +63,30 @@ async def _api(
     files: Any = None,
 ) -> Any:
     try:
-        async with AsyncClient(timeout=_TIMEOUT, headers=_headers()) as client:
-            res = await client.request(
+        res = await HTTP_CLIENT.request(
+            method,
+            f"{_API_BASE}{endpoint}",
+            params=params or {},
+            data=data,
+            files=files,
+            headers=_headers(),
+            timeout=_TIMEOUT,
+        )
+        if res.status_code == 429:
+            retry_after = int(res.headers.get("Retry-After", 60))
+            LOGGER.warning(f"TorBox rate limited. Sleeping {retry_after}s")
+            await asyncio.sleep(retry_after)
+            res = await HTTP_CLIENT.request(
                 method,
                 f"{_API_BASE}{endpoint}",
                 params=params or {},
                 data=data,
                 files=files,
+                headers=_headers(),
+                timeout=_TIMEOUT,
             )
-            res.raise_for_status()
-            payload = res.json()
+        res.raise_for_status()
+        payload = res.json()
     except HTTPError as exc:
         raise DirectDownloadLinkException(f"ERROR: TorBox network error: {exc}") from exc
     except ValueError as exc:
@@ -161,11 +175,14 @@ async def _create_webdl(link: str) -> dict[str, Any]:
     return item
 
 
-async def _get_torrent(torrent_id: int | str) -> dict[str, Any]:
+async def _get_torrent(torrent_id: int | str, poll_count: int = 0) -> dict[str, Any]:
+    params = {"id": str(torrent_id)}
+    if poll_count == 0 or poll_count % 5 == 0:
+        params["bypass_cache"] = "true"
     data = await _api(
         "GET",
         "/torrents/mylist",
-        params={"id": str(torrent_id), "bypass_cache": "true"},
+        params=params,
     )
     item = _first_item(data)
     if not item:
@@ -173,11 +190,14 @@ async def _get_torrent(torrent_id: int | str) -> dict[str, Any]:
     return item
 
 
-async def _get_webdl(web_id: int | str) -> dict[str, Any]:
+async def _get_webdl(web_id: int | str, poll_count: int = 0) -> dict[str, Any]:
+    params = {"id": str(web_id)}
+    if poll_count == 0 or poll_count % 5 == 0:
+        params["bypass_cache"] = "true"
     data = await _api(
         "GET",
         "/webdl/mylist",
-        params={"id": str(web_id), "bypass_cache": "true"},
+        params=params,
     )
     item = _first_item(data)
     if not item:
@@ -211,6 +231,13 @@ async def delete_web_download(web_id: int | str) -> bool:
         return False
 
 
+def _adaptive_interval(elapsed: float) -> float:
+    if elapsed < 30:    return 5.0
+    elif elapsed < 120: return 10.0
+    elif elapsed < 300: return 15.0
+    else:               return 30.0
+
+
 async def _wait_ready(
     item_id: int | str,
     kind: str,
@@ -223,12 +250,13 @@ async def _wait_ready(
     loop = asyncio.get_event_loop()
     started = loop.time()
     no_seed_started = 0.0
+    poll_count = 0
 
     while True:
         if is_cancelled and is_cancelled():
             raise DirectDownloadLinkException("ERROR: TorBox task cancelled")
 
-        item = await getter(item_id)
+        item = await getter(item_id, poll_count=poll_count)
 
         if progress_callback:
             await progress_callback(
@@ -267,7 +295,9 @@ async def _wait_ready(
         if now - started >= _MAX_WAIT:
             raise DirectDownloadLinkException("ERROR: TorBox max wait timeout")
 
-        await asyncio.sleep(_POLL_INTERVAL)
+        poll_count += 1
+        elapsed = now - started
+        await asyncio.sleep(_adaptive_interval(elapsed))
 
 
 async def _request_file_link(kind: str, item_id: int | str, file_id: int | str) -> str:
@@ -314,6 +344,7 @@ async def _payload(item: dict[str, Any], kind: str, item_id: int | str) -> dict[
 
         async with semaphore:
             direct = await _request_file_link(kind, item_id, file_id)
+            await asyncio.sleep(1.0)  # space out unlock requests
 
         full_name = file_item.get("name") or file_item.get("short_name") or "file"
 

@@ -2,7 +2,8 @@ from uvloop import install
 
 install()
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from asyncio import Lock, new_event_loop, set_event_loop
+from asyncio import Lock, Semaphore, new_event_loop, set_event_loop
+import httpx
 from logging import (
     getLogger,
     FileHandler,
@@ -68,7 +69,7 @@ queue_dict_lock = Lock()
 qb_listener_lock = Lock()
 nzb_listener_lock = Lock()
 jd_listener_lock = Lock()
-cpu_eater_lock = Lock()
+cpu_eater_semaphore = Semaphore(max(1, (cpu_count() or 1) // 2))
 same_directory_lock = Lock()
 
 sabnzbd_client = SabnzbdClient(
@@ -78,3 +79,10 @@ sabnzbd_client = SabnzbdClient(
 )
 
 scheduler = AsyncIOScheduler(event_loop=bot_loop)
+
+HTTP_CLIENT = httpx.AsyncClient(
+    limits=httpx.Limits(max_connections=100, max_keepalive_connections=30),
+    timeout=30.0,
+    verify=False,
+    follow_redirects=True,
+)

@@ -19,6 +19,9 @@ async def main():
 
     await load_settings()
 
+    from .core.telegram_patch import apply_patches
+    apply_patches()
+
     await gather(TgClient.start_bot(), TgClient.start_user())
     await gather(load_configurations(), update_variables())
 

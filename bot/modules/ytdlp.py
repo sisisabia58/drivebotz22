@@ -1,4 +1,3 @@
-from httpx import AsyncClient
 from asyncio import wait_for, Event
 from functools import partial
 from pyrogram.filters import regex, user
@@ -239,11 +238,11 @@ def extract_info(link, options):
 
 
 async def _mdisk(link, name):
+    from bot import HTTP_CLIENT
     key = link.split("/")[-1]
-    async with AsyncClient(verify=False) as client:
-        resp = await client.get(
-            f"https://diskuploader.entertainvideo.com/v1/file/cdnurl?param={key}"
-        )
+    resp = await HTTP_CLIENT.get(
+        f"https://diskuploader.entertainvideo.com/v1/file/cdnurl?param={key}"
+    )
     if resp.status_code == 200:
         resp_json = resp.json()
         link = resp_json["source"]

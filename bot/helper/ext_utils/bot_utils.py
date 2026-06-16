@@ -1,4 +1,3 @@
-from httpx import AsyncClient
 from asyncio.subprocess import PIPE
 from functools import partial, wraps
 from concurrent.futures import ThreadPoolExecutor
@@ -203,10 +202,14 @@ def get_size_bytes(size):
 
 
 async def get_content_type(url):
+    from bot import HTTP_CLIENT
     try:
-        async with AsyncClient() as client:
-            response = await client.get(url, allow_redirects=True, verify=False)
-            return response.headers.get("Content-Type")
+        res = await HTTP_CLIENT.head(url)
+        ct = res.headers.get("Content-Type")
+        if ct:
+            return ct
+        async with HTTP_CLIENT.stream("GET", url) as stream:
+            return stream.headers.get("Content-Type")
     except:
         return None
 

@@ -19,7 +19,7 @@ from .. import (
     task_dict,
     excluded_extensions,
     included_extensions,
-    cpu_eater_lock,
+    cpu_eater_semaphore,
     intervals,
     DOWNLOAD_DIR,
     cores,
@@ -818,7 +818,7 @@ class TaskConfig:
                                 self, ffmpeg, gid, "FFmpeg"
                             )
                         self.progress = False
-                        await cpu_eater_lock.acquire()
+                        await cpu_eater_semaphore.acquire()
                         self.progress = True
                     LOGGER.info(f"Running ffmpeg cmd for: {file_path}")
                     var_cmd = cmd.copy()
@@ -911,7 +911,7 @@ class TaskConfig:
                                         self, ffmpeg, gid, "FFmpeg"
                                     )
                                 self.progress = False
-                                await cpu_eater_lock.acquire()
+                                await cpu_eater_semaphore.acquire()
                                 self.progress = True
                             LOGGER.info(f"Running ffmpeg cmd for: {f_path}")
                             if isinstance(f_path, list):
@@ -941,7 +941,7 @@ class TaskConfig:
                         await remove(inp)
         finally:
             if checked:
-                cpu_eater_lock.release()
+                cpu_eater_semaphore.release()
         return dl_path
 
     async def substitute(self, dl_path):
@@ -1101,7 +1101,7 @@ class TaskConfig:
             async with task_dict_lock:
                 task_dict[self.mid] = FFmpegStatus(self, ffmpeg, gid, "Convert")
             self.progress = False
-            async with cpu_eater_lock:
+            async with cpu_eater_semaphore:
                 self.progress = True
                 for f_path, f_type in self.files_to_proceed.items():
                     self.proceed_count += 1
@@ -1152,7 +1152,7 @@ class TaskConfig:
             async with task_dict_lock:
                 task_dict[self.mid] = FFmpegStatus(self, ffmpeg, gid, "Sample Video")
             self.progress = False
-            async with cpu_eater_lock:
+            async with cpu_eater_semaphore:
                 self.progress = True
                 LOGGER.info(f"Creating Sample video: {self.name}")
                 for f_path, file_ in self.files_to_proceed.items():

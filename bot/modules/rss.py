@@ -1,4 +1,3 @@
-from httpx import AsyncClient
 from apscheduler.triggers.interval import IntervalTrigger
 from asyncio import Lock, sleep
 from datetime import datetime, timedelta
@@ -240,10 +239,10 @@ async def rss_sub(_, message, pre_event):
             cmd = None
             stv = False
         try:
-            async with AsyncClient(
-                headers=headers, follow_redirects=True, timeout=60, verify=False
-            ) as client:
-                res = await client.get(feed_link)
+            from bot import HTTP_CLIENT
+            res = await HTTP_CLIENT.get(
+                feed_link, headers=headers, follow_redirects=True, timeout=60
+            )
             html = res.text
             rss_d = feed_parse(html)
             last_link = ""
@@ -457,10 +456,10 @@ async def rss_get(_, message, pre_event):
                 msg = await send_message(
                     message, f"Getting the last <b>{count}</b> item(s) from {title}"
                 )
-                async with AsyncClient(
-                    headers=headers, follow_redirects=True, timeout=60, verify=False
-                ) as client:
-                    res = await client.get(data["link"])
+                from bot import HTTP_CLIENT
+                res = await HTTP_CLIENT.get(
+                    data["link"], headers=headers, follow_redirects=True, timeout=60
+                )
                 html = res.text
                 rss_d = feed_parse(html)
                 item_info = ""
@@ -814,13 +813,13 @@ async def rss_monitor():
                 tries = 0
                 while True:
                     try:
-                        async with AsyncClient(
+                        from bot import HTTP_CLIENT
+                        res = await HTTP_CLIENT.get(
+                            data["link"],
                             headers=headers,
                             follow_redirects=True,
                             timeout=60,
-                            verify=False,
-                        ) as client:
-                            res = await client.get(data["link"])
+                        )
                         html = res.text
                         break
                     except:

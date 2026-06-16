@@ -100,6 +100,8 @@ async def confirm_restart(_, query):
         if st := intervals["status"]:
             for intvl in list(st.values()):
                 intvl.cancel()
+        from bot import HTTP_CLIENT
+        await HTTP_CLIENT.aclose()
         await clean_all()
         await TorrentManager.close_all()
         if sabnzbd_client.LOGGED_IN:
